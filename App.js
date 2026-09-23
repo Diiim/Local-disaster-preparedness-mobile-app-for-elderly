@@ -4,7 +4,8 @@ haze advisory - https://www.channelnewsasia.com/singapore/haze-nea-psi-unhealthy
 flood advisory - https://www.pub.gov.sg/Public/KeyInitiatives/Get-Flood-Wise/Flood-Safety-Tips
 heat stress - https://www.nea.gov.sg/media/news/news/index/new-heat-stress-advisory-launched-to-guide-public-on-minimising-risk-of-heat-related-illnesses 
 hydration - <a href="https://www.vecteezy.com/free-vector/natural-hydration">Natural Hydration Vectors by Vecteezy</a>
-flood 2 -<iframe src="https://assets.pinterest.com/ext/embed.html?id=534802524519794307" height="547" width="345" frameborder="0" scrolling="no" ></iframe>
+flood2mid -<iframe src="https://assets.pinterest.com/ext/embed.html?id=534802524519794307" height="547" width="345" frameborder="0" scrolling="no" ></iframe>
+
 */
 import React, {
   createContext,
@@ -28,15 +29,18 @@ import {
   Linking,
   Platform,
   Image,
+  BackHandler
 } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView} from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Speech from 'expo-speech';
 import * as Notifications from 'expo-notifications';
 
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -158,10 +162,8 @@ const guides = [
       'Check official air quality updates and reduce outdoor activity when air quality becomes unhealthy. Keep medication nearby and use an N95 mask when outdoor activity cannot be avoided.',
     moreContent:
       'Keep doors and windows closed where practical and follow medical advice for existing health conditions. Contact a caregiver or seek medical assistance if you begin to feel unwell.',
-    images: [
-      require('./assets/haze-psi.jpg'),
-      require('./assets/haze-n95.jpg'),
-    ],
+    images: [require('./assets/haze-psi.jpg')],
+    midImage: require('./assets/haze-n95.jpg'),
     moreInfoUrl: 'https://www.haze.gov.sg/',
     badgeId: 'haze-aware',
     checklistId: 'haze',
@@ -204,6 +206,7 @@ const guides = [
     moreContent:
       'Do not enter fast-moving or unknown-depth water. Contact emergency services or a caregiver if assistance is needed, and continue checking official updates until conditions improve.',
     images: [require('./assets/flood.jpg')],
+    midImage: require('./assets/flood2mid.jpg'),
     moreInfoUrl: 'https://www.pub.gov.sg/Public/KeyInitiatives/Get-Flood-Wise/Flood-Safety-Tips',
     badgeId: 'flood-ready',
     checklistId: 'flood',
@@ -245,6 +248,7 @@ const guides = [
     moreContent:
       'Wear light clothing, keep medication nearby and check on people who may be vulnerable to heat. Contact a caregiver or seek medical help if you begin to feel unwell.',
     images: [require('./assets/heat-stress.jpg')],
+    midImage: require('./assets/hydration.jpg'),
     moreInfoUrl: 'https://www.nea.gov.sg/media/news/news/index/new-heat-stress-advisory-launched-to-guide-public-on-minimising-risk-of-heat-related-illnesses',
     badgeId: 'heat-safe',
     checklistId: 'heatwave',
@@ -644,6 +648,8 @@ export default function App() {
   const [screen, setScreen] = useState('home');
   const [checklists, setChecklists] = useState(defaultChecklists);
   const [badges, setBadges] = useState(defaultBadges);
+  const [badgeQueue, setBadgeQueue] = useState([]);
+  const [currentBadge, setCurrentBadge] = useState(null);
   const [selectedChecklistId, setSelectedChecklistId] = useState(null);
   const [selectedGuideId, setSelectedGuideId] = useState(null);
   const [quizAnswers, setQuizAnswers] = useState({});
@@ -914,8 +920,10 @@ export default function App() {
   }, [dataLoaded, userProfile.setupCompleted, settings.notifications]);
 
   useEffect(() => {
-    const currentAlertIds = new Set(
-      displayedAlerts.map((alert) => alert.id)
+    const currentAlertKeys = new Set(
+      displayedAlerts.map(
+        (alert) => `${alert.id}-${alert.hazardType}`
+      )
     );
 
     async function notifyForNewAlerts() {
@@ -930,7 +938,10 @@ export default function App() {
       }
 
       const newAlerts = displayedAlerts.filter(
-        (alert) => !previousAlertIdsRef.current.has(alert.id)
+        (alert) =>
+          !previousAlertIdsRef.current.has(
+            `${alert.id}-${alert.hazardType}`
+          )
       );
 
       for (const alert of newAlerts) {
@@ -945,17 +956,17 @@ export default function App() {
                 hazardType: alert.hazardType,
               },
             },
-            trigger:
-              Platform.OS === 'android'
-                ? { channelId: 'emergency-alerts' }
-                : null,
+            trigger: null,
           });
         } catch (error) {
-          console.log('Failed to show alert notification', error);
+          console.log(
+            'Failed to show alert notification',
+            error
+          );
         }
       }
 
-      previousAlertIdsRef.current = currentAlertIds;
+      previousAlertIdsRef.current = currentAlertKeys;
     }
 
     notifyForNewAlerts();
@@ -973,6 +984,69 @@ export default function App() {
     });
   }, [screen]);
 
+  //Android back button 
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    const handleAndroidBack = () => {
+      //Do not allow the Android Back button to escape the guided Home tutorial 
+      if (tutorialInProgress) {
+        return true;
+      }
+
+      switch (screen) {
+        case 'detail':
+          setScreen('selection');
+          return true;
+
+        case 'selection':
+          setScreen('home');
+          return true;
+
+        case 'guideTest':
+          setScreen('guideInfo');
+          return true;
+
+        case 'testResult':
+          setScreen('guideInfo');
+          return true;
+
+        case 'guideInfo':
+          setScreen('resources');
+          return true;
+
+        case 'resources':
+          setScreen('home');
+          return true;
+
+        case 'progress':
+          setScreen('home');
+          return true;
+
+        case 'settings':
+          setScreen('home');
+          return true;
+
+        case 'home':
+          return false;
+
+        default:
+          setScreen('home');
+          return true;
+      }
+    };
+
+    const backSubscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      handleAndroidBack
+    );
+
+    return () => {
+      backSubscription.remove();
+    };
+  }, [screen, tutorialInProgress]);
 
   useEffect(() => {
     if (
@@ -991,22 +1065,12 @@ export default function App() {
     screen,
   ]);
 
-  /*async function saveChecklists() {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(checklists));
-    } catch (error) {
-      console.log("Failed to save checklists", error);
-    }
+  function queueBadgePopup(badge) {
+    setBadgeQueue((previousQueue) => [
+      ...previousQueue,
+      badge,
+    ]);
   }
-
-  async function saveBadges() {
-    try {
-      await AsyncStorage.setItem(BADGE_STORAGE_KEY, JSON.stringify(badges));
-    } catch (error) {
-      console.log("Failed to save badges", error);
-    }
-  }*/
-
   function unlockBadge(badgeId) {
     const badge = badges.find((item) => item.id === badgeId);
 
@@ -1014,19 +1078,19 @@ export default function App() {
       return;
     }
 
+    const earnedBadge = {
+      ...badge,
+      earned: true,
+      earnedAt: new Date().toISOString(),
+    };
+
     setBadges((previousBadges) =>
       previousBadges.map((item) =>
-        item.id === badgeId
-          ? {
-              ...item,
-              earned: true,
-              earnedAt: new Date().toISOString(),
-            }
-          : item
+        item.id === badgeId ? earnedBadge : item
       )
     );
 
-    Alert.alert('Badge Earned', `You earned: ${badge.title}`);
+    queueBadgePopup(earnedBadge);
   }
 
   useEffect(() => {
@@ -1047,35 +1111,36 @@ export default function App() {
     );
 
     if (allPrerequisitesEarned && masterBadge && !masterBadge.earned) {
+      const earnedMasterBadge = {
+        ...masterBadge,
+        earned: true,
+        earnedAt: new Date().toISOString(),
+      };
+
       setBadges((previousBadges) =>
         previousBadges.map((badge) =>
           badge.id === 'preparedness-master'
-            ? {
-                ...badge,
-                earned: true,
-                earnedAt: new Date().toISOString(),
-              }
+            ? earnedMasterBadge
             : badge
         )
       );
 
-      Alert.alert(
-        'Badge Earned',
-        'You earned: Preparedness Champion Badge'
-      );
+      queueBadgePopup(earnedMasterBadge);
     }
   }, [badges]);
 
-  /*async function saveGuideProgress() {
-    try {
-      await AsyncStorage.setItem(
-        GUIDE_PROGRESS_STORAGE_KEY,
-        JSON.stringify(guideProgress)
-      );
-    } catch (error) {
-      console.log("Failed to save guide progress", error);
+  useEffect(() => {
+    if (currentBadge || badgeQueue.length === 0) {
+      return;
     }
-  }*/
+
+    setCurrentBadge(badgeQueue[0]);
+
+    setBadgeQueue((previousQueue) =>
+      previousQueue.slice(1)
+    );
+  }, [badgeQueue, currentBadge]);
+
 
   function openChecklist(id) {
     const previousVisits = userProfile.checklistVisitCounts?.[id] || 0;
@@ -1127,8 +1192,6 @@ export default function App() {
       })),
     };
 
-    //const customChecklists = checklists.filter((list) => list.type === "Custom");
-
     setChecklists([...checklists, newChecklist]);
 
     setNewChecklistName('');
@@ -1175,7 +1238,6 @@ export default function App() {
 
     setChecklists(updatedChecklists);
     setNewItemText('');
-    //unlockBadge("personal-item");
   }
 
   function deleteChecklistItem(itemId) {
@@ -1286,9 +1348,8 @@ export default function App() {
   }
 
   async function resetPrototype() {
-    // Reset the visible state immediately, then clear all persisted data.
-    // Keeping dataLoaded false prevents the save effects from writing the old
-    // state back into AsyncStorage while the reset is taking place.
+    //Reset the visible state immediately, then clear all persisted data
+    //Keeping dataLoaded false prevents the save effects from writing the old state back into AsyncStorage while the reset is taking place
     setDataLoaded(false);
 
     try {
@@ -1299,6 +1360,8 @@ export default function App() {
 
     setChecklists(defaultChecklists);
     setBadges(defaultBadges);
+    setBadgeQueue([]);
+    setCurrentBadge(null);
     setSettings(defaultSettings);
     setGuideProgress(defaultGuideProgress);
     setUserProfile({ ...defaultUserProfile });
@@ -1337,16 +1400,14 @@ export default function App() {
       console.log('Failed to clear stored prototype data', error);
     }
 
-    // Re-enable persistence only after storage has been cleared.
+    //Re-enable persistence only after storage has been cleared.
     setDataLoaded(true);
   }
 
   function confirmResetPrototype() {
-    const message =
-      'This will remove your saved name, progress, badges, checklists and settings.';
+    const message = 'This will remove your saved name, progress, badges, checklists and settings.';
 
-    // React Native Alert confirmation buttons are not consistently supported
-    // by Expo Snack on web, so use the browser confirmation dialog there.
+    //React Native Alert confirmation buttons are not consistently supported by Expo Snack on web, so use the browser confirmation dialog there.
     if (Platform.OS === 'web') {
       const confirmed =
         typeof globalThis.confirm === 'function'
@@ -1378,23 +1439,18 @@ export default function App() {
 
   const selectedGuide = guides.find((guide) => guide.id === selectedGuideId);
 
-  const selectedGuideIndex = guides.findIndex(
-    (guide) => guide.id === selectedGuideId
-  );
+  const selectedGuideIndex = guides.findIndex((guide) => guide.id === selectedGuideId);
 
   const nextGuide =
     selectedGuideIndex >= 0 && selectedGuideIndex < guides.length - 1
       ? guides[selectedGuideIndex + 1]
       : null;
 
-  const completedGuides = guides.filter(
-    (guide) => guideProgress[guide.id]?.completed === true
-  ).length;
+  const completedGuides = guides.filter((guide) => guideProgress[guide.id]?.completed === true).length;
 
   const totalGuides = guides.length;
 
-  const progress =
-    totalGuides === 0 ? 0 : Math.round((completedGuides / totalGuides) * 100);
+  const progress = totalGuides === 0 ? 0 : Math.round((completedGuides / totalGuides) * 100);
 
   const readinessLevel =
     progress === 0
@@ -1524,9 +1580,8 @@ export default function App() {
     if (passed) {
       unlockBadge(selectedGuide.badgeId);
 
-      // Completing the Haze test during onboarding completes the tutorial.
-      // This is done here rather than waiting for the View Progress button,
-      // so returning to Home cannot restart the tutorial from step one.
+      //Completing the Haze test during onboarding completes the tutorial
+      //This is done here rather than waiting for the View Progress button so returning to Home cannot restart the tutorial from step one
       if (tutorialInProgress && selectedGuide.id === 'haze-guide') {
         setUserProfile((previousProfile) => ({
           ...previousProfile,
@@ -1546,7 +1601,7 @@ export default function App() {
 
     setScreen('testResult');
   }
-  //accessibility
+  //Accessibility
   const accessibilityTheme = {
     backgroundColor: settings.highContrast ? '#000000' : '#FFFFFF',
     cardColor: settings.highContrast ? '#000000' : '#F8F0FA',
@@ -1594,18 +1649,6 @@ export default function App() {
     );
   }
 
-  //settings
-  /*async function saveSettings() {
-    try {
-      await AsyncStorage.setItem(
-        SETTINGS_STORAGE_KEY,
-        JSON.stringify(settings)
-      );
-    } catch (error) {
-      console.log("Failed to save settings", error);
-    }
-  }*/
-
   function updateSetting(settingName, value) {
     setSettings((previousSettings) => ({
       ...previousSettings,
@@ -1613,7 +1656,7 @@ export default function App() {
     }));
   }
 
-  //alerts
+  //Alerts
   function openAlertGuide(alert) {
     if (!alert) return;
 
@@ -1852,6 +1895,47 @@ export default function App() {
           setChecklistItems={setNewChecklistItems}
           onCreate={createChecklist}
         />
+
+        {currentBadge && (
+          <Modal
+            visible={true}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setCurrentBadge(null)}
+          >
+            <View style={styles.badgePopupOverlay}>
+              <View style={styles.badgePopupCard}>
+                <Text style={styles.badgePopupSymbol}>
+                  ★
+                </Text>
+
+                <Text style={styles.badgePopupHeading}>
+                  Badge Earned!
+                </Text>
+
+                <Text style={styles.badgePopupTitle}>
+                  {currentBadge.title}
+                </Text>
+
+                <Text style={styles.badgePopupDescription}>
+                  {currentBadge.description}
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.badgePopupButton}
+                  onPress={() => setCurrentBadge(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Continue after earning ${currentBadge.title}`}
+                >
+                  <Text style={styles.quickButtonText}>
+                    Continue
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        )}
+
       </SafeAreaView>
     </AppThemeContext.Provider>
   );
@@ -1932,6 +2016,7 @@ function HomeScreen({
   const readinessTutorialRef = useRef(null);
   const checklistTutorialRef = useRef(null);
   const resourcesTutorialRef = useRef(null);
+  const badgesTutorialRef = useRef(null);
   const progressTutorialRef = useRef(null);
   const emergencyTutorialRef = useRef(null);
   const homeScrollRef = useRef(null);
@@ -1958,6 +2043,13 @@ function HomeScreen({
       ref: readinessTutorialRef,
     },
     {
+      id: 'badges',
+      title: 'Badges',
+      text:
+        'Earn badges by completing preparedness activities such as the tutorial, hazard tests and checklist revisits. Earned and locked badges are shown here.',
+      ref: badgesTutorialRef,
+    },
+    {
       id: 'checklist',
       title: 'Checklists',
       text:
@@ -1973,9 +2065,9 @@ function HomeScreen({
     },
     {
       id: 'progress',
-      title: 'Progress and Badges',
+      title: 'Progress',
       text:
-        'Progress shows completed guides, readiness percentage and earned badges.',
+        'Progress shows your overall readiness, completed guides, best quiz scores and detailed badge collection.',
       ref: progressTutorialRef,
     },
     {
@@ -2033,9 +2125,7 @@ function HomeScreen({
       });
     };
 
-    // First measure where the real component is, then scroll it to a
-    // predictable visible position. This avoids phone-size-specific
-    // hard-coded scroll values.
+    //First measure where the real component is, then scroll it to a predictable visible position
     const initialMeasureTimer = setTimeout(() => {
       measureRelativeToHome((measurement) => {
         const viewportHeight =
@@ -2054,9 +2144,7 @@ function HomeScreen({
 
         currentScrollYRef.current = nextScrollY;
 
-        // Measure again after scrolling. The final spotlight coordinates are
-        // relative to the Home root, so SafeArea/status-bar offsets, browser
-        // zoom and different phone dimensions do not shift the highlight.
+        //Measure again after scrolling. The final spotlight coordinates are relative to the Home root, so SafeArea/status-bar offsets, browser zoom and different phone dimensions do not shift the highlight.
         finalMeasureTimer = setTimeout(() => {
           measureRelativeToHome((finalMeasurement) => {
             setTutorialTarget({
@@ -2294,7 +2382,11 @@ function HomeScreen({
         <Text style={styles.cardText}>{progress}% prepared</Text>
       </View>
 
-      <View style={styles.homeBadgesCard}>
+      <View
+        ref={badgesTutorialRef}
+        collapsable={false}
+        style={styles.homeBadgesCard}
+      >
         <View style={styles.homeBadgesHeader}>
           <Text style={styles.homeBadgesTitle}>Badges</Text>
           <Text style={styles.homeBadgesCount}>
@@ -2779,10 +2871,104 @@ function GuideInfoScreen({ guide, onBack, onStartTest, onOpenChecklist }) {
   const [showMore, setShowMore] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
 
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+
   useEffect(() => {
     setShowMore(false);
     setExpandedImage(null);
+
+    scale.value = 1;
+    savedScale.value = 1;
+    translateX.value = 0;
+    translateY.value = 0;
+    savedTranslateX.value = 0;
+    savedTranslateY.value = 0;
   }, [guide.id]);
+
+  function closeExpandedImage() {
+    scale.value = 1;
+    savedScale.value = 1;
+
+    translateX.value = 0;
+    translateY.value = 0;
+
+    savedTranslateX.value = 0;
+    savedTranslateY.value = 0;
+
+    setExpandedImage(null);
+  }
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((event) => {
+      const nextScale = savedScale.value * event.scale;
+
+      scale.value = Math.min(Math.max(nextScale, 1), 4);
+    })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+
+      if (scale.value <= 1) {
+        translateX.value = 0;
+        translateY.value = 0;
+
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+      }
+    });
+
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      if (scale.value <= 1) {
+        translateX.value = 0;
+        translateY.value = 0;
+        return;
+      }
+
+      translateX.value =
+        savedTranslateX.value + event.translationX;
+
+      translateY.value =
+        savedTranslateY.value + event.translationY;
+    })
+    .onEnd(() => {
+      if (scale.value <= 1) {
+        translateX.value = 0;
+        translateY.value = 0;
+
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+        return;
+      }
+
+      savedTranslateX.value = translateX.value;
+      savedTranslateY.value = translateY.value;
+    });
+
+  const combinedGesture = Gesture.Simultaneous(
+    pinchGesture,
+    panGesture
+  );
+
+  const animatedImageStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateX: translateX.value,
+      },
+      {
+        translateY: translateY.value,
+      },
+      {
+        scale: scale.value,
+      },
+    ],
+  }));
 
   async function openOfficialSource() {
     if (!guide.moreInfoUrl) return;
@@ -2801,6 +2987,7 @@ function GuideInfoScreen({ guide, onBack, onStartTest, onOpenChecklist }) {
       await Linking.openURL(guide.moreInfoUrl);
     } catch (error) {
       console.log('Failed to open guide source', error);
+
       Alert.alert(
         'Link Unavailable',
         'The official information page could not be opened.'
@@ -2821,127 +3008,206 @@ function GuideInfoScreen({ guide, onBack, onStartTest, onOpenChecklist }) {
   return (
     <>
       <ScrollView contentContainerStyle={styles.screenContent}>
-      <View style={styles.topRow}>
-        <View style={styles.headerBox}>
-          <Text style={styles.headerText}>{guide.title}</Text>
+        <View style={styles.topRow}>
+          <View style={styles.headerBox}>
+            <Text style={styles.headerText}>{guide.title}</Text>
+          </View>
+
+          <ReadButton
+            text={spokenGuideText}
+            accessibilityLabel={`Read the ${guide.title} aloud`}
+          />
         </View>
 
-        <ReadButton
-          text={spokenGuideText}
-          accessibilityLabel={`Read the ${guide.title} aloud`}
-        />
-      </View>
+        <View style={styles.resourceCard}>
+          <Text style={styles.cardText}>Essential Actions</Text>
 
-      <View style={styles.resourceCard}>
-        <Text style={styles.cardText}>Essential Actions</Text>
+          {guide.images?.map((imageSource, index) => (
+            <TouchableOpacity
+              key={`${guide.id}-image-${index}`}
+              style={styles.guideImageButton}
+              onPress={() => {
+                scale.value = 1;
+                savedScale.value = 1;
 
-        {guide.images?.map((imageSource, index) => (
-          <TouchableOpacity
-            key={`${guide.id}-image-${index}`}
-            style={styles.guideImageButton}
-            onPress={() => setExpandedImage(imageSource)}
-            accessibilityRole="button"
-            accessibilityLabel={`Enlarge ${guide.title} safety information image ${index + 1}`}
-            accessibilityHint="Opens the image in a larger full-screen view"
-          >
-            <Image
-              source={imageSource}
-              style={styles.guideImage}
-              resizeMode="contain"
-              accessibilityRole="image"
-              accessibilityLabel={`${guide.title} safety information image ${index + 1}`}
-            />
-            <Text style={styles.enlargeImageText}>Tap image to enlarge</Text>
-          </TouchableOpacity>
-        ))}
+                translateX.value = 0;
+                translateY.value = 0;
 
-        <Text style={styles.guideText}>{guide.content}</Text>
+                savedTranslateX.value = 0;
+                savedTranslateY.value = 0;
 
-        {showMore && guide.moreContent && (
-          <Text style={styles.guideMoreText}>{guide.moreContent}</Text>
-        )}
+                setExpandedImage(imageSource);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Enlarge ${guide.title} safety information image ${index + 1}`}
+              accessibilityHint="Opens the image in a larger full-screen view"
+            >
+              <Image
+                source={imageSource}
+                style={styles.guideImage}
+                resizeMode="contain"
+                accessibilityRole="image"
+                accessibilityLabel={`${guide.title} safety information image ${index + 1}`}
+              />
 
-        {guide.moreContent && (
-          <TouchableOpacity
-            style={styles.moreInfoButton}
-            onPress={() => setShowMore((previous) => !previous)}
-            accessibilityRole="button"
-            accessibilityLabel={
-              showMore
-                ? 'Hide additional guide information'
-                : 'Show additional guide information'
-            }
-          >
-            <Text style={styles.moreInfoButtonText}>
-              {showMore ? 'Show Less' : 'More Information'}
+              <Text style={styles.enlargeImageText}>
+                Tap image to enlarge
+              </Text>
+            </TouchableOpacity>
+          ))}
+
+          <Text style={styles.guideText}>
+            {guide.content}
+          </Text>
+
+          {/* Show the middle image only after More Information is pressed */}
+          {showMore && guide.midImage && (
+            <TouchableOpacity
+              style={styles.guideImageButton}
+              onPress={() => {
+                scale.value = 1;
+                savedScale.value = 1;
+
+                translateX.value = 0;
+                translateY.value = 0;
+
+                savedTranslateX.value = 0;
+                savedTranslateY.value = 0;
+
+                setExpandedImage(guide.midImage);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Enlarge ${guide.title} instruction image`}
+              accessibilityHint="Opens the image in a larger full-screen view"
+            >
+              <Image
+                source={guide.midImage}
+                style={styles.guideImage}
+                resizeMode="contain"
+                accessibilityRole="image"
+                accessibilityLabel={`${guide.title} instruction image`}
+              />
+
+              <Text style={styles.enlargeImageText}>
+                Tap image to enlarge
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Second paragraph */}
+          {showMore && guide.moreContent && (
+            <Text style={styles.guideMoreText}>
+              {guide.moreContent}
             </Text>
-          </TouchableOpacity>
-        )}
+          )}
 
-        {guide.moreInfoUrl && (
-          <TouchableOpacity
-            style={styles.officialSourceButton}
-            onPress={openOfficialSource}
-            accessibilityRole="link"
-            accessibilityLabel={`Open official ${guide.title} information`}
-          >
-            <Text style={styles.officialSourceButtonText}>
-              More Information – Official Source
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
+          {guide.moreContent && (
+            <TouchableOpacity
+              style={styles.moreInfoButton}
+              onPress={() =>
+                setShowMore((previous) => !previous)
+              }
+              accessibilityRole="button"
+              accessibilityLabel={
+                showMore
+                  ? 'Hide additional guide information'
+                  : 'Show additional guide information'
+              }
+            >
+              <Text style={styles.moreInfoButtonText}>
+                {showMore ? 'Show Less' : 'More Information'}
+              </Text>
+            </TouchableOpacity>
+          )}
 
-      <TouchableOpacity
-        style={styles.quickButtonWide}
-        onPress={onStartTest}
-        accessibilityRole="button"
-        accessibilityLabel={`Open the ${guide.title} test`}>
-        <Text style={styles.quickButtonText}>Test Your Knowledge</Text>
-      </TouchableOpacity>
+          {guide.moreInfoUrl && (
+            <TouchableOpacity
+              style={styles.officialSourceButton}
+              onPress={openOfficialSource}
+              accessibilityRole="link"
+              accessibilityLabel={`Open official ${guide.title} information`}
+            >
+              <Text style={styles.officialSourceButtonText}>
+                More Information – Official Source
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
-      <TouchableOpacity
-        style={styles.secondaryButton}
-        onPress={onOpenChecklist}
-        accessibilityRole="button"
-        accessibilityLabel={`Open the ${guide.title} checklist`}>
-        <Text style={styles.secondaryButtonText}>Open Related Checklist</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.quickButtonWide}
+          onPress={onStartTest}
+          accessibilityRole="button"
+          accessibilityLabel={`Open the ${guide.title} test`}
+        >
+          <Text style={styles.quickButtonText}>
+            Test Your Knowledge
+          </Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity style={styles.secondaryButton} onPress={onBack}>
-        <Text style={styles.secondaryButtonText}>Back to Resources</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.secondaryButton}
+          onPress={onOpenChecklist}
+          accessibilityRole="button"
+          accessibilityLabel={`Open the ${guide.title} checklist`}
+        >
+          <Text style={styles.secondaryButtonText}>
+            Open Related Checklist
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.secondaryButton}
+          onPress={onBack}
+        >
+          <Text style={styles.secondaryButtonText}>
+            Back to Resources
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
 
-      <Modal
-        visible={expandedImage !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setExpandedImage(null)}
-      >
+    <Modal
+      visible={expandedImage !== null}
+      transparent
+      animationType="fade"
+      onRequestClose={closeExpandedImage}
+    >
+      <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={styles.imageViewerOverlay}>
           <TouchableOpacity
             style={styles.imageViewerCloseButton}
-            onPress={() => setExpandedImage(null)}
+            onPress={closeExpandedImage}
             accessibilityRole="button"
             accessibilityLabel="Close enlarged image"
           >
-            <Text style={styles.imageViewerCloseText}>Close</Text>
+            <Text style={styles.imageViewerCloseText}>
+              Close
+            </Text>
           </TouchableOpacity>
 
           {expandedImage && (
-            <Image
-              source={expandedImage}
-              style={styles.imageViewerImage}
-              resizeMode="contain"
-              accessibilityRole="image"
-              accessibilityLabel={`Enlarged ${guide.title} safety information`}
-            />
+            <GestureDetector gesture={combinedGesture}>
+              <Animated.View style={{ width: '95%', height: '80%' }}>
+                <Animated.Image
+                  source={expandedImage}
+                  style={[
+                    styles.imageViewerImage,
+                    animatedImageStyle,
+                  ]}
+                  resizeMode="contain"
+                  accessibilityRole="image"
+                  accessibilityLabel={`Enlarged ${guide.title} safety information`}
+                />
+              </Animated.View>
+            </GestureDetector>
           )}
 
-          <Text style={styles.imageViewerHint}>Enlarged view</Text>
+          <Text style={styles.imageViewerHint}>
+            Pinch to zoom and drag to move
+          </Text>
         </View>
-      </Modal>
+      </GestureHandlerRootView>
+    </Modal>
     </>
   );
 }
@@ -4075,6 +4341,63 @@ function createStyles(theme) {
       marginBottom: 4,
     },
 
+    badgePopupOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.65)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+
+    badgePopupCard: {
+      width: '100%',
+      maxWidth: 380,
+      backgroundColor: theme.cardColor,
+      borderWidth: 2,
+      borderColor: theme.primaryColor,
+      borderRadius: 18,
+      padding: 26,
+      alignItems: 'center',
+    },
+
+    badgePopupSymbol: {
+      fontSize: 54,
+      color: theme.primaryColor,
+      marginBottom: 8,
+    },
+
+    badgePopupHeading: {
+      fontSize: theme.headingTextSize + 3,
+      color: theme.textColor,
+      fontWeight: '700',
+      textAlign: 'center',
+      marginBottom: 12,
+    },
+
+    badgePopupTitle: {
+      fontSize: theme.normalTextSize + 1,
+      color: theme.textColor,
+      fontWeight: '700',
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+
+    badgePopupDescription: {
+      fontSize: theme.smallTextSize,
+      color: theme.secondaryTextColor,
+      textAlign: 'center',
+      lineHeight: theme.smallTextSize + 7,
+      marginBottom: 20,
+    },
+
+    badgePopupButton: {
+      width: '100%',
+      backgroundColor: theme.primaryColor,
+      borderRadius: 14,
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+
     settingsDescription: {
       fontSize: theme.smallTextSize + 1,
       color: theme.secondaryTextColor,
@@ -4215,6 +4538,7 @@ function createStyles(theme) {
 
     imageViewerImage: {
       width: '100%',
+      height: '100%',
       flex: 1,
     },
 
