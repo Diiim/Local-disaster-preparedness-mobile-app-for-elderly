@@ -47,7 +47,7 @@ npx expo start
 
 This is especially important for your project:
 
-```md
+
 ## Platform Notes
 
 The majority of the interface can be demonstrated using the web version.
