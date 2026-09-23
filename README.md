@@ -45,9 +45,6 @@ npx expo start
 
 ## 5. Important platform note
 
-This is especially important for your project:
-
-
 ## Platform Notes
 
 The majority of the interface can be demonstrated using the web version.
