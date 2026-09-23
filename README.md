@@ -41,7 +41,7 @@ Main features include preparedness guides, checklists, knowledge tests, readines
 npm install
 
 npx expo start
-
+```
 
 ## 5. Important platform note
 
